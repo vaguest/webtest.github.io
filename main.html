@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>对讲demo</title>
+    <style type="text/css">
+      h1,
+      h4 {
+        text-align: center;
+      }
+      
+      div{
+        margin: 15px 0;
+      }
+
+      .video-wrapper {
+        width: 610px;
+        margin-top: 15px;
+      }
+    </style>
+  
+  </head>
+
+  <body>
+    <h1>对讲demo</h1>
+    <div>roomId: <select id="roomInput" style="user-select: all;">
+      <option>请选择</option>
+    </select> Token: <input id="currentToken"></input></div>
+    <button id="init">初始化对讲</button>
+    <button id="roomList">房间列表</button>
+    <button id="createRoom">创建房间</button>
+    <button id="createToken">生成Token</button>
+    <button id="start">加入房间</button>
+    <button id="publish">推流</button>
+    <button id="pullStream">拉流</button>
+    <button id="end">挂断对讲</button>
+    <button id="delete">删除房间</button>
+    <button id="destroy">销毁对讲</button>
+    <div id="videosDiv" >
+  </body>
+  <!-- 使用umd引入 -->
+  <!-- <script src="./VideoMeetingSDK.umd.min.js"></script> -->
+  <script type="module">
+    // 使用ESMoudle引入
+    import TraweMeetingSDK from "./VideoMeetingSDK.es.min.js";
+    const initEl = document.getElementById("init");
+    const roomListEl = document.getElementById("roomList");
+    const createEl = document.getElementById("createRoom");
+    const tokenEl = document.getElementById("createToken");
+    const startEl = document.getElementById("start");
+    const publishEl = document.getElementById("publish");
+    const pullStreamEl = document.getElementById("pullStream");
+    const endEl = document.getElementById("end");
+    const deleteEl = document.getElementById("delete");
+    const destroyEl = document.getElementById("destroy");
+    var videosDiv = document.getElementById("videosDiv");
+
+    // 实例SDK对象
+    let sdk;
+    // 初始化对讲
+    initEl.addEventListener("click", async () => {
+      const events = {
+        onSteamAdd: async function (event) {
+          // 获取当前房间所有远端流包括自身推流， 清除掉混合流
+          const remoteStreams = sdk.vms.info.remoteStreams.splice(1);
+          for (const stream of remoteStreams) {
+            const subscription = await sdk._subscribe(stream);
+            console.log(subscription, "333");
+            // 如需要本地流显示，则注释该段代码
+            /* if (vms.info.self.id == stream.origin) {
+                return;
+              } */
+            sdk._showVideo(stream.id, subscription.stream, videosDiv);
+          }
+        },
+        onParticipantjoined: async function (event) {},
+        onServerdisconnected: async function (event) {},
+      };
+      sdk = new TraweMeetingSDK({
+        serverUrl: "https://192.168.3.53",
+        events,
+      });
+      sdk.init();
+    });
+
+    // 房间列表
+    roomListEl.addEventListener('click',async ()=> {
+      const rooms = await getRoomList();
+      document.getElementById('roomInput').options[rooms.length -1].selected = true;
+    })
+
+    //创建房间
+    createEl.addEventListener('click', async () => {
+      if(sdk) {
+        const roomId = await sdk._createRoom();
+        console.log("roomId=" + roomId);
+        const rooms = await getRoomList();
+        document.getElementById('roomInput').options[rooms.length -1].selected = true;
+      } else {
+        alert("请先初始化对讲")
+      }
+    })
+
+    // 生成Token
+    tokenEl.addEventListener('click',async () => {
+      const roomId = document.getElementById('roomInput').value;
+      if(roomId) {
+        const token = await sdk._createToken(roomId, "test");
+        document.getElementById('currentToken').value = token
+        console.log("token=" + token);
+      } else {
+        alert("请先创建房间，再发起对讲");
+      }
+    
+    })
+
+
+    // 加入房间
+    startEl.addEventListener("click", async () => {
+      const token = document.getElementById('currentToken').value;
+      if(token) {
+        sdk.startCall(token);
+      } else {
+        alert("请先生成token，再发起对讲");
+      }
+    });
+
+    // 推流
+    publishEl.addEventListener("click", async () => {
+      const infos = await navigator.mediaDevices.enumerateDevices();
+      console.log(infos);
+      const videoCamera = [];
+      infos.forEach(item=> {
+        if(item.kind === 'videoinput') {
+          videoCamera.push({
+            label: item.label,
+            id: item.deviceId,
+          })
+        }
+      })
+    if(videoCamera.length > 0) {
+        videoCamera.forEach(async (camera) => {
+          const localStream = await sdk._createLocalStream(undefined, camera.id);
+          const publication = await sdk._publishStream(
+            localStream,
+            true,
+            true
+          );
+        });
+      } else {
+        alert('未发现摄像头')
+      }
+    });
+
+
+    // 拉流
+    pullStreamEl.addEventListener('click', async ()=> {
+      const remoteStreams = sdk.vms.info.remoteStreams.splice(1);
+      for (const stream of remoteStreams) {
+        const subscription = await sdk._subscribe(stream);
+        console.log(subscription, "333");
+        // 如需要本地流显示，则注释该段代码
+        /* if (vms.info.self.id == stream.origin) {
+            return;
+          } */
+        sdk._showVideo(stream.id, subscription.stream, videosDiv);
+      }
+})
+
+    // 挂断对讲
+    endEl.addEventListener("click", () => {
+      if(sdk) {
+        videosDiv.replaceChildren();
+        sdk.endCall();
+        document.getElementById('currentToken').value = ''
+      } else {
+        alert("请先初始化对讲");
+      }
+      
+    });
+
+    // 删除房间
+    deleteEl.addEventListener('click', () => {
+      if(sdk) {
+        const roomId = document.getElementById('roomInput').value;
+        sdk._deleteRoom(roomId);
+        document.getElementById('roomInput').value = '';
+      } else {
+        alert("请先初始化对讲");
+      }
+    })
+
+    // 销毁对讲，避免内存泄漏
+    destroyEl.addEventListener("click", () => {
+      if(sdk) {
+        sdk.destory();
+        sdk = null;
+      }
+    });
+
+
+    async function getRoomList() {
+      document.getElementById('roomInput').options.length = 0;
+      const rooms = await sdk._getRooms();
+      rooms.forEach(item=> {
+        document.getElementById('roomInput').options.add(new Option(item.id,item.id));
+      })
+      return rooms;
+    }
+  </script>
+</html>
